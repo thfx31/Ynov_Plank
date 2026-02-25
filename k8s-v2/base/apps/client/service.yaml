@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: algohive-client
+  namespace: algohive
+  labels:
+    app.kubernetes.io/name: client
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: algohive
+spec:
+  selector:
+    app: algohive-client
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  type: ClusterIP

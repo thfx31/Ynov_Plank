@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: algohive-config
+  namespace: algohive
+data:
+  ENV: "staging"
+  CLIENT_URL: "https://staging.algohive.dev"
+  BEE_APIS: "http://beeapi-server-staging:5000"
+  DISCOVERY_URLS: "http://beeapi-server-staging:5000"

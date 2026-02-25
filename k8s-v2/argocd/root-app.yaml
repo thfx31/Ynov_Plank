@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: algohive-root
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: algohive
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/thfx31/Plank.git
+    targetRevision: main
+    path: k8s-v2/argocd/apps   # ← pointe vers le dossier qui contient les child Apps
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd           # les Application CRD vivent dans le namespace argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: algohive-config
+  namespace: algohive
+  labels:
+    app.kubernetes.io/part-of: algohive
+data:
+  # --- Database ---
+  POSTGRES_HOST: "algohive-db"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "algohive"
+  POSTGRES_USER: "algohive"
+
+  # --- Server ---
+  ENV: "production"
+  API_PORT: "8080"
+  ALLOWED_ORIGINS: "*"
+  CLIENT_URL: "https://algohive.dev"
+
+  # --- Mail ---
+  MAIL_HOST: "smtp.gmail.com"
+  MAIL_PORT: "587"
+  MAIL_USERNAME: "algohive.dev@gmail.com"
+
+  # --- Cache (Redis) ---
+  CACHE_HOST: "algohive-cache"
+  CACHE_PORT: "6379"
+  CACHE_DB: "0"
+  CACHE_EXPI_MIN: "30"
+  CACHE_TTL: "86400"
+
+  # --- BeeHub ---
+  APP_PORT: "8081"
+  ADMIN_USERNAME: "admin"
+  DISCOVERY_ENABLED: "true"
+  BEE_APIS: "http://beeapi-server-toulouse:5000,http://beeapi-server-montpellier:5000,http://beeapi-server-lyon:5000,http://beeapi-server-staging:5000"
+  DISCOVERY_URLS: "http://beeapi-server-toulouse:5000,http://beeapi-server-montpellier:5000,http://beeapi-server-lyon:5000,http://beeapi-server-staging:5000"

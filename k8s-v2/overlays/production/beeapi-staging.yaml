@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beeapi-server-staging
+  namespace: algohive
+  labels:
+    app.kubernetes.io/instance: staging
+spec:
+  selector:
+    matchLabels:
+      app: beeapi-server-staging
+  template:
+    metadata:
+      labels:
+        app: beeapi-server-staging
+        app.kubernetes.io/instance: staging
+    spec:
+      containers:
+        - name: beeapi
+          image: ghcr.io/algohive-coding-puzzles/beeapi-go:latest
+          ports:
+            - containerPort: 5000
+          env:
+            - name: SERVER_NAME
+              value: "Staging"
+          volumeMounts:
+            - name: puzzles-storage
+              mountPath: /app/puzzles
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: puzzles-storage
+          persistentVolumeClaim:
+            claimName: puzzles-staging-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beeapi-server-staging
+  namespace: algohive
+  labels:
+    app.kubernetes.io/instance: staging
+spec:
+  selector:
+    app: beeapi-server-staging
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: puzzles-staging-pvc
+  namespace: algohive
+  labels:
+    app.kubernetes.io/instance: staging
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+  # storageClassName: gp3

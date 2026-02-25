@@ -1,0 +1,46 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: algohive
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: "Projet AlgoHive - Plateforme d'apprentissage du code"
+
+  # Repo Git autorisé
+  sourceRepos:
+    - "https://github.com/thfx31/Plank.git"
+
+  # Namespaces cibles autorisés
+  destinations:
+    - namespace: algohive
+      server: https://kubernetes.default.svc
+    - namespace: kube-system        # pour Sealed Secrets controller
+      server: https://kubernetes.default.svc
+
+  # Ressources K8S autorisées à être déployées
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: "bitnami.com"
+      kind: SealedSecret
+
+  namespaceResourceWhitelist:
+    - group: "apps"
+      kind: Deployment
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: PersistentVolumeClaim
+    - group: "networking.k8s.io"
+      kind: Ingress
+    - group: "bitnami.com"
+      kind: SealedSecret
+
+  # Politique de sync par défaut
+  syncWindows: []

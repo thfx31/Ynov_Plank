@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: algohive-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: algohive
+    environment: staging
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: algohive
+
+  source:
+    repoURL: https://github.com/thfx31/Plank.git
+    targetRevision: develop
+    path: k8s-v2/overlays/staging
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: algohive
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

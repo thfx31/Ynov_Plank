@@ -1,0 +1,10 @@
+# Secrets en clair - NE JAMAIS COMMITER
+secrets/secret-template.local.yaml
+secrets/*.local.yaml
+
+# Certificat kubeseal (optionnel - il est public mais inutile dans le repo)
+pub-cert.pem
+
+# Fichiers locaux
+*.bak
+.DS_Store

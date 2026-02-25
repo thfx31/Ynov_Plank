@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: algohive-production
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: algohive
+    environment: production
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"   # après le projet ArgoCD
+spec:
+  project: algohive
+
+  source:
+    repoURL: https://github.com/thfx31/Plank.git
+    targetRevision: main
+    path: k8s-v2/overlays/production
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: algohive
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data

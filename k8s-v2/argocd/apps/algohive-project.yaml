@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: algohive-project
+  namespace: argocd
+  labels:
+    app.kubernetes.io/component: bootstrap
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"   # après sealed-secrets, avant les apps
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/thfx31/Plank.git
+    targetRevision: main
+    path: k8s-v2/argocd/projects
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

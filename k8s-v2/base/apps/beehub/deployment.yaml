@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beehub
+  namespace: algohive
+  labels:
+    app.kubernetes.io/name: beehub
+    app.kubernetes.io/component: admin
+    app.kubernetes.io/part-of: algohive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: beehub
+  template:
+    metadata:
+      labels:
+        app: beehub
+        app.kubernetes.io/name: beehub
+        app.kubernetes.io/component: admin
+    spec:
+      containers:
+        - name: beehub
+          image: ghcr.io/algohive-coding-puzzles/beehub:latest
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: algohive-config
+            - secretRef:
+                name: algohive-secret
+          volumeMounts:
+            - name: beehub-db-storage
+              mountPath: /app/backend/db
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: beehub-db-storage
+          persistentVolumeClaim:
+            claimName: beehub-db-pvc
