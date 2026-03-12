@@ -33,6 +33,9 @@ spec:
                 name: algohive-config
             - secretRef:
                 name: algohive-secret
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "algohive", "-d", "algohive"]

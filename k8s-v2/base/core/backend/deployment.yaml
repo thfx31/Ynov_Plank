@@ -32,9 +32,11 @@ spec:
             - secretRef:
                 name: algohive-secret
 
+          # /health n'existe pas sur cette API — on utilise /api/v1/metrics
+          # qui est confirmé Running dans les logs
           readinessProbe:
             httpGet:
-              path: /health
+              path: /api/v1/metrics
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -42,7 +44,7 @@ spec:
 
           livenessProbe:
             httpGet:
-              path: /health
+              path: /api/v1/metrics
               port: 8080
             initialDelaySeconds: 30
             periodSeconds: 20
