@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Le nom "beeapi-server" sera surchargé dans chaque overlay
+  # par un namePrefix ou un patch de nom (ex: beeapi-server-tlse)
+  name: beeapi-server
+  namespace: algohive
+  labels:
+    app.kubernetes.io/name: beeapi-server
+    app.kubernetes.io/component: catalog
+    app.kubernetes.io/part-of: algohive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: beeapi-server
+  template:
+    metadata:
+      labels:
+        app: beeapi-server
+        app.kubernetes.io/name: beeapi-server
+        app.kubernetes.io/component: catalog
+    spec:
+      containers:
+        - name: beeapi
+          image: ghcr.io/algohive-coding-puzzles/beeapi-go:latest
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+
+          # SERVER_NAME est le seul paramètre qui change entre les campus.
+          # Il sera surchargé dans chaque overlay via un Strategic Merge Patch.
+          env:
+            - name: SERVER_NAME
+              value: "BeeAPI-Default"
+
+          # --- Health probes ---
+          # readinessProbe : le pod ne reçoit du trafic qu'une fois prêt
+          readinessProbe:
+            httpGet:
+              path: /name
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # livenessProbe : K8s redémarre le pod s'il devient non-réactif
+          livenessProbe:
+            httpGet:
+              path: /name
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+
+          # --- Resource limits ---
+          # Dimensionnement conservateur pour EKS t3.small/medium.
+          # Ajuster selon la charge réelle mesurée.
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+          volumeMounts:
+            - name: puzzles-storage
+              mountPath: /app/puzzles
+
+      volumes:
+        - name: puzzles-storage
+          persistentVolumeClaim:
+            # Le nom du PVC sera patché dans chaque overlay
+            claimName: puzzles-pvc

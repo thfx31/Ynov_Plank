@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: algohive-root
+  namespace: argocd
+  # L'annotation finalizer garantit que ArgoCD supprime les ressources
+  # enfants si cette Application est elle-même supprimée (cascade delete)
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # ⚠️  À adapter avec l'URL de ton repo Git
+    repoURL: https://github.com/thfx31/Plank.git
+    targetRevision: HEAD
+    path: k8s-v2/argocd/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true      # Supprime les ressources retirées du repo
+      selfHeal: true   # Resynchronise si quelqu'un modifie manuellement
+    syncOptions:
+      - CreateNamespace=true

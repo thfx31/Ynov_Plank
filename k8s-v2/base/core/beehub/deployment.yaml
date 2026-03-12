@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beehub
+  namespace: algohive
+  labels:
+    app.kubernetes.io/name: beehub
+    app.kubernetes.io/component: admin
+    app.kubernetes.io/part-of: algohive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: beehub
+  template:
+    metadata:
+      labels:
+        app: beehub
+        app.kubernetes.io/name: beehub
+        app.kubernetes.io/component: admin
+    spec:
+      containers:
+        - name: beehub
+          image: ghcr.io/algohive-coding-puzzles/beehub:latest
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: algohive-config
+            - secretRef:
+                name: algohive-secret
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 20
+
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+          volumeMounts:
+            - name: db-storage
+              mountPath: /app/backend/db
+            # Le timezone via hostPath est volontairement supprimé :
+            # sur EKS les nodes sont en UTC, utiliser TZ env var à la place
+            - name: timezone
+              mountPath: /etc/localtime
+              readOnly: true
+
+      volumes:
+        - name: db-storage
+          persistentVolumeClaim:
+            claimName: beehub-db-pvc
+        - name: timezone
+          hostPath:
+            path: /etc/localtime

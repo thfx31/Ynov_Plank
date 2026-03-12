@@ -1,0 +1,59 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# On réutilise le template BeeAPI commun depuis la base
+resources:
+  - ../../../../base/beeapi
+
+# namePrefix renomme TOUTES les ressources du template :
+# beeapi-server -> beeapi-server-tlse
+# puzzles-pvc   -> puzzles-pvc-tlse
+# etc.
+namePrefix: ""
+
+# nameSuffix ajoute un suffixe à tous les noms de ressources
+nameSuffix: "-tlse"
+
+# On met aussi à jour les labels pour que le Service sélectionne
+# le bon Deployment après le changement de nom
+commonLabels:
+  app: beeapi-server-tlse
+
+# Strategic Merge Patch : on ne redéfinit que ce qui change
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: beeapi-server
+      spec:
+        selector:
+          matchLabels:
+            app: beeapi-server-tlse
+        template:
+          metadata:
+            labels:
+              app: beeapi-server-tlse
+          spec:
+            containers:
+              - name: beeapi
+                env:
+                  - name: SERVER_NAME
+                    value: "Ynov-Toulouse"
+                  - name: SERVER_DESCRIPTION
+                    value: "Server for Ynov Toulouse students"
+                volumeMounts:
+                  - name: puzzles-storage
+                    mountPath: /app/puzzles
+            volumes:
+              - name: puzzles-storage
+                persistentVolumeClaim:
+                  claimName: puzzles-pvc-tlse
+  - patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: beeapi-server
+      spec:
+        selector:
+          app: beeapi-server-tlse

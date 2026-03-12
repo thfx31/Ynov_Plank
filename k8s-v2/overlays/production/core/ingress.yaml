@@ -1,0 +1,49 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: algohive-ingress
+  namespace: algohive
+  annotations:
+    # AWS Load Balancer Controller (à installer sur le cluster EKS)
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # HTTPS avec certificat ACM (remplacer l'ARN par ton certificat)
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:eu-west-3:ACCOUNT_ID:certificate/CERT_ID
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+    # Health check cible l'endpoint du client
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+spec:
+  rules:
+    # ⚠️  Remplacer par ton domaine ou l'URL ALB générée
+    - host: algohive.dev
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: algohive-server
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: algohive-client
+                port:
+                  number: 80
+    - host: beehub.algohive.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: beehub
+                port:
+                  number: 8081
