@@ -4,42 +4,44 @@ kind: Kustomization
 resources:
   - ../../../../base/beeapi
 
-nameSuffix: "-tlse"
-
+# On cible explicitement la ressource à patcher avec 'target'
+# plutôt que de se fier au nom dans le patch body
 patches:
-  - patch: |-
-      apiVersion: apps/v1
+  - target:
       kind: Deployment
-      metadata:
-        name: beeapi-server-tlse
-      spec:
-        selector:
-          matchLabels:
-            app: beeapi-server-tlse
-        template:
-          metadata:
-            labels:
-              app: beeapi-server-tlse
-          spec:
-            containers:
-              - name: beeapi
-                env:
-                  - name: SERVER_NAME
-                    value: "Ynov-Toulouse"
-                  - name: SERVER_DESCRIPTION
-                    value: "Server for Ynov Toulouse students"
-                volumeMounts:
-                  - name: puzzles-storage
-                    mountPath: /app/puzzles
-            volumes:
-              - name: puzzles-storage
-                persistentVolumeClaim:
-                  claimName: puzzles-pvc-tlse
-  - patch: |-
-      apiVersion: v1
+      name: beeapi-server
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: beeapi-server-tlse
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: beeapi-server-tlse
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: beeapi-server-tlse
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "Ynov-Toulouse"
+      - op: replace
+        path: /spec/template/spec/volumes/0/persistentVolumeClaim/claimName
+        value: puzzles-pvc-tlse
+
+  - target:
       kind: Service
-      metadata:
-        name: beeapi-server-tlse
-      spec:
-        selector:
-          app: beeapi-server-tlse
+      name: beeapi-server
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: beeapi-server-tlse
+      - op: replace
+        path: /spec/selector/app
+        value: beeapi-server-tlse
+
+  - target:
+      kind: PersistentVolumeClaim
+      name: puzzles-pvc
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: puzzles-pvc-tlse

@@ -4,47 +4,54 @@ kind: Kustomization
 resources:
   - ../../../../base/beeapi
 
-nameSuffix: "-staging"
-
 patches:
-  - patch: |-
-      apiVersion: apps/v1
+  - target:
       kind: Deployment
-      metadata:
-        name: beeapi-server-staging
-      spec:
-        selector:
-          matchLabels:
-            app: beeapi-server-staging
-        template:
-          metadata:
-            labels:
-              app: beeapi-server-staging
-          spec:
-            containers:
-              - name: beeapi
-                env:
-                  - name: SERVER_NAME
-                    value: "Ynov-Staging"
-                resources:
-                  requests:
-                    memory: "32Mi"
-                    cpu: "25m"
-                  limits:
-                    memory: "128Mi"
-                    cpu: "100m"
-                volumeMounts:
-                  - name: puzzles-storage
-                    mountPath: /app/puzzles
-            volumes:
-              - name: puzzles-storage
-                persistentVolumeClaim:
-                  claimName: puzzles-pvc-staging
-  - patch: |-
-      apiVersion: v1
+      name: beeapi-server
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: beeapi-server-staging
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: beeapi-server-staging
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: beeapi-server-staging
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "Ynov-Staging"
+      - op: replace
+        path: /spec/template/spec/volumes/0/persistentVolumeClaim/claimName
+        value: puzzles-pvc-staging
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "32Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "25m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "128Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "100m"
+
+  - target:
       kind: Service
-      metadata:
-        name: beeapi-server-staging
-      spec:
-        selector:
-          app: beeapi-server-staging
+      name: beeapi-server
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: beeapi-server-staging
+      - op: replace
+        path: /spec/selector/app
+        value: beeapi-server-staging
+
+  - target:
+      kind: PersistentVolumeClaim
+      name: puzzles-pvc
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: puzzles-pvc-staging

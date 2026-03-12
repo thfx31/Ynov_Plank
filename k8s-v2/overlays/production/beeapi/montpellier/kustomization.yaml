@@ -4,40 +4,42 @@ kind: Kustomization
 resources:
   - ../../../../base/beeapi
 
-nameSuffix: "-mpl"
-
 patches:
-  - patch: |-
-      apiVersion: apps/v1
+  - target:
       kind: Deployment
-      metadata:
-        name: beeapi-server-mpl
-      spec:
-        selector:
-          matchLabels:
-            app: beeapi-server-mpl
-        template:
-          metadata:
-            labels:
-              app: beeapi-server-mpl
-          spec:
-            containers:
-              - name: beeapi
-                env:
-                  - name: SERVER_NAME
-                    value: "Ynov-Montpellier"
-                volumeMounts:
-                  - name: puzzles-storage
-                    mountPath: /app/puzzles
-            volumes:
-              - name: puzzles-storage
-                persistentVolumeClaim:
-                  claimName: puzzles-pvc-mpl
-  - patch: |-
-      apiVersion: v1
+      name: beeapi-server
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: beeapi-server-mpl
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: beeapi-server-mpl
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: beeapi-server-mpl
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "Ynov-Montpellier"
+      - op: replace
+        path: /spec/template/spec/volumes/0/persistentVolumeClaim/claimName
+        value: puzzles-pvc-mpl
+
+  - target:
       kind: Service
-      metadata:
-        name: beeapi-server-mpl
-      spec:
-        selector:
-          app: beeapi-server-mpl
+      name: beeapi-server
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: beeapi-server-mpl
+      - op: replace
+        path: /spec/selector/app
+        value: beeapi-server-mpl
+
+  - target:
+      kind: PersistentVolumeClaim
+      name: puzzles-pvc
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: puzzles-pvc-mpl
