@@ -1,172 +1,157 @@
-# AlgoHive — Infrastructure K8s v2 (GitOps / ArgoCD)
+# 🐝 Plank — AlgoHive on Kubernetes
+
+> Projet académique — Mastère Infrastructures, Sécurité & Cloud  
+> Migration d'une architecture microservices Docker Compose vers Kubernetes avec GitOps (ArgoCD) sur AWS EKS.
+
+---
+
+## Contexte
+
+**AlgoHive** est une plateforme d'apprentissage du code basée sur une architecture microservices. Ce projet part du [code source officiel AlgoHive](https://github.com/AlgoHive-Coding-Puzzles/AlgoHive-Infra) et a pour objectif de :
+
+1. Transformer les fichiers `docker-compose` en manifestes Kubernetes production-ready
+2. Implémenter un workflow **GitOps** avec ArgoCD (pattern App of Apps)
+3. Déployer l'ensemble sur un cluster **AWS EKS**
+4. Sécuriser les secrets via **Sealed Secrets** (Bitnami)
+
+---
+
+## Architecture globale
+
+```
+                        ┌─────────────────────────────────────────┐
+                        │         AWS EKS — eu-west-3              │
+                        │         Namespace: algohive               │
+                        │                                           │
+   Internet ──── ALB ──►│  algohive-client (React/Nginx :80)       │
+                        │  algohive-server (API Go :8080)          │
+                        │  beehub (Admin :8081)                    │
+                        │                                           │
+                        │  BeeAPI Toulouse    (:5000)              │
+                        │  BeeAPI Montpellier (:5000)              │
+                        │  BeeAPI Lyon        (:5000)              │
+                        │  BeeAPI Staging     (:5000)              │
+                        │                                           │
+                        │  Postgres (:5432)   Redis (:6379)        │
+                        └─────────────────────────────────────────┘
+                                        ▲
+                                        │ GitOps sync
+                                        │
+                              ┌─────────────────┐
+                              │  ArgoCD          │
+                              │  App of Apps     │
+                              └────────┬─────────┘
+                                       │
+                              ┌────────▼─────────┐
+                              │  GitHub Repo      │
+                              │  (k8s-v2/)        │
+                              └──────────────────┘
+```
+
+### Services
+
+| Service | Rôle | Port |
+|---|---|---|
+| `algohive-client` | Interface étudiant (React) | 80 |
+| `algohive-server` | API backend, auth JWT, scores | 8080 |
+| `beehub` | Back-office professeurs | 8081 |
+| `beeapi-server-tlse` | Catalogue puzzles Toulouse | 5000 |
+| `beeapi-server-mpl` | Catalogue puzzles Montpellier | 5000 |
+| `beeapi-server-lyon` | Catalogue puzzles Lyon | 5000 |
+| `beeapi-server-staging` | Catalogue puzzles Staging | 5000 |
+| `algohive-db` | PostgreSQL (données, auth) | 5432 |
+| `algohive-cache` | Redis (sessions, cache) | 6379 |
+
+---
+
+## Stack technique
+
+| Couche | Technologie |
+|---|---|
+| Cloud | AWS EKS (eu-west-3) |
+| Orchestration | Kubernetes 1.31 |
+| GitOps | ArgoCD — App of Apps pattern |
+| Config management | Kustomize (base/overlays) |
+| Secret management | Bitnami Sealed Secrets v0.36.0 |
+| Exposition | AWS Load Balancer Controller + ALB Ingress |
+| Stockage | AWS EBS via CSI Driver (gp2) |
 
 ---
 
 ## Structure du repo
 
 ```
-k8s-v2/
-├── argocd/
-│   ├── app-of-apps.yaml          # Application racine ArgoCD (à appliquer manuellement 1 fois)
-│   └── apps/
-│       ├── infrastructure.yaml   # Postgres + Redis (wave -2)
-│       ├── core.yaml             # Backend + Client + BeeHub (wave -1)
-│       └── beeapi.yaml           # Tous les BeeAPI campus (wave 0)
-│
-├── base/                         # Templates génériques réutilisables
-│   ├── namespace/
-│   ├── configmap/
-│   ├── secrets/                  # SealedSecret (chiffré)
-│   ├── beeapi/                   # Template unique BeeAPI ← le cœur du refactoring
-│   ├── core/{backend,client,beehub}/
-│   └── infrastructure/{postgres,redis}/
-│
-└── overlays/
-    ├── production/
-    │   ├── beeapi/{toulouse,montpellier,lyon,staging}/
-    │   ├── core/                 # + Ingress AWS ALB
-    │   └── infrastructure/
-    └── staging/
+Plank/
+├── README.md                   ← Ce fichier
+├── docs/
+│   ├── README-AWS.md           ← Déploiement AWS EKS pas à pas
+│   └── README-TECH.md          ← Architecture k8s-v2, Kustomize, ArgoCD
+├── k8s-v1/                     ← PoC initial (Docker Compose → K8s basique)
+│   └── ...
+└── k8s-v2/                     ← Version production (Kustomize + ArgoCD)
+    ├── argocd/                 ← App of Apps ArgoCD
+    ├── base/                   ← Manifestes de base (templates)
+    └── overlays/               ← Configurations par environnement
 ```
 
 ---
 
-## Prérequis locaux
+## Itérations du projet
+
+### v1 — PoC Kind (local)
+Première migration Docker Compose → Kubernetes, déployée sur un cluster local `kind`. Objectif : valider la faisabilité. Voir [`k8s-v1/`](k8s-v1/).
+
+**Limitations identifiées :**
+- Duplication massive des manifestes BeeAPI (x4)
+- Secrets en clair dans le repo Git
+- Pas de resource limits ni health probes
+- Pas d'Ingress, accès uniquement via port-forward
+- Pas de structure GitOps
+
+### v2 — Production EKS + GitOps
+Refactoring complet adressant toutes les limitations de la v1. Voir [`k8s-v2/`](k8s-v2/).
+
+**Améliorations apportées :**
+- Template BeeAPI unique via Kustomize (zéro duplication)
+- Secrets chiffrés via Sealed Secrets (safe à commiter dans Git)
+- Resource limits + readiness/liveness probes sur tous les containers
+- Ingress AWS ALB (exposition publique)
+- ArgoCD App of Apps avec sync waves (déploiement ordonné)
+
+---
+
+## Démarrage rapide
+
+### Prérequis
+- Cluster EKS opérationnel + `kubectl` configuré
+- ArgoCD installé dans le namespace `argocd`
+- Sealed Secrets controller installé dans `kube-system`
+
+### Bootstrap en une commande
 
 ```bash
-# kubectl (connexion au cluster EKS)
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+kubectl apply -f k8s-v2/argocd/app-of-apps.yaml
+```
 
-# kubeseal (CLI Sealed Secrets)
-KUBESEAL_VERSION=0.36.0
-curl -L "https://github.com/bitnami-labs/sealed-secrets/releases/download/v${KUBESEAL_VERSION}/kubeseal-${KUBESEAL_VERSION}-linux-amd64.tar.gz" | tar xz
-sudo mv kubeseal /usr/local/bin/
+ArgoCD prend en charge le reste : il déploie l'infrastructure, puis les apps core, puis les BeeAPIs — dans le bon ordre grâce aux sync waves.
 
-# kustomize (pour tester les manifestes localement)
-curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+### Vérification
+
+```bash
+# État des applications ArgoCD
+kubectl get applications -n argocd
+
+# État des pods AlgoHive
+kubectl get pods -n algohive
 ```
 
 ---
 
-## Procédure Sealed Secrets
+## Documentation
 
-### 1. Installer le contrôleur sur le cluster EKS
-
-```bash
-# Le contrôleur génère une paire de clés RSA au démarrage.
-# Il déchiffre les SealedSecrets à la volée dans le cluster.
-kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.36.0/controller.yaml
-
-# Vérifier que le contrôleur est up
-kubectl get pods -n kube-system -l name=sealed-secrets-controller
-```
-
-### 2. Générer le SealedSecret algohive-secret
-
-```bash
-# ⚠️  NE JAMAIS commiter ce fichier temporaire dans Git !
-kubectl create secret generic algohive-secret \
-  --namespace algohive \
-  --from-literal=POSTGRES_PASSWORD='CHANGE_ME_strong_password' \
-  --from-literal=JWT_SECRET='CHANGE_ME_very_long_random_string_min_32_chars' \
-  --from-literal=DEFAULT_PASSWORD='CHANGE_ME_default_user_password' \
-  --from-literal=MAIL_PASSWORD='CHANGE_ME_smtp_app_password' \
-  --from-literal=CACHE_PASSWORD='' \
-  --from-literal=SECRET_KEY='CHANGE_ME_another_random_secret' \
-  --from-literal=ADMIN_PASSWORD='CHANGE_ME_admin_password' \
-  --dry-run=client -o yaml | \
-kubeseal \
-  --controller-name=sealed-secrets-controller \
-  --controller-namespace=kube-system \
-  --format yaml \
-  > base/secrets/sealed-secret.yaml
-
-# Vérifier que le fichier généré contient bien "encryptedData"
-cat base/secrets/sealed-secret.yaml
-
-# Commiter le SealedSecret (safe, chiffré avec la clé du cluster)
-git add base/secrets/sealed-secret.yaml
-git commit -m "feat: add sealed secrets for algohive"
-git push
-```
-
-### 3. Vérifier que K8s déchiffre correctement
-
-```bash
-# Après que ArgoCD ait synchro le SealedSecret :
-kubectl get secret algohive-secret -n algohive
-# Doit afficher le Secret (pas le SealedSecret)
-
-# Pour voir les valeurs déchiffrées (attention, base64) :
-kubectl get secret algohive-secret -n algohive -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d
-```
-
----
-
-## Bootstrap ArgoCD (1 seule fois)
-
-```bash
-# 1. Installer ArgoCD sur le cluster
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-
-# 2. Attendre que ArgoCD soit prêt
-kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=120s
-
-# 3. Récupérer le mot de passe admin initial
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 -d && echo
-
-# 4. Appliquer l'App of Apps (la seule commande kubectl apply manuelle)
-kubectl apply -f argocd/app-of-apps.yaml
-
-# ArgoCD va automatiquement créer les 3 Applications enfants
-# et déployer toute la stack dans l'ordre (sync waves).
-```
-
----
-
-## Tester les manifestes localement (sans cluster)
-
-```bash
-# Vérifier que Kustomize génère les bons manifestes pour chaque overlay
-kustomize build overlays/production/infrastructure
-kustomize build overlays/production/core
-kustomize build overlays/production/beeapi
-
-# Compter les ressources générées (doit être cohérent)
-kustomize build overlays/production/beeapi | grep "^kind:" | sort | uniq -c
-```
-
----
-
-## Ajouter un nouveau campus BeeAPI
-
-1. Copier un overlay existant :
-```bash
-cp -r overlays/production/beeapi/lyon overlays/production/beeapi/bordeaux
-```
-
-2. Éditer `overlays/production/beeapi/bordeaux/kustomization.yaml` :
-   - Changer `nameSuffix: "-bordeaux"`
-   - Changer `SERVER_NAME: "Ynov-Bordeaux"`
-   - Changer `claimName: puzzles-pvc-bordeaux`
-   - Changer le selector `app: beeapi-server-bordeaux`
-
-3. Ajouter `bordeaux` dans `overlays/production/beeapi/kustomization.yaml`
-
-4. Ajouter `http://beeapi-server-bordeaux:5000` dans `base/configmap/configmap.yaml`
-   (champs `BEE_APIS` et `DISCOVERY_URLS`)
-
-5. Commiter et pousser → ArgoCD déploie automatiquement.
-
----
-
-## Récupérer une clé API BeeAPI
-
-```bash
-# Remplacer "tlse" par le campus voulu : mpl, lyon, staging
-kubectl logs -n algohive \
-  $(kubectl get pod -n algohive -l app=beeapi-server-tlse -o jsonpath='{.items[0].metadata.name}') \
-  | grep "API key initialized"
-```
+| Document | Description |
+|---|---|
+| [docs/README-AWS.md](docs/README-AWS.md) | Déploiement complet AWS EKS : IAM, VPC, EKS, EBS, ALB, ArgoCD — toutes les commandes et tous les problèmes rencontrés |
+| [docs/README-TECH.md](docs/README-TECH.md) | Architecture technique k8s-v2 : Kustomize, ArgoCD, Sealed Secrets, structure des fichiers |
+| [k8s-v1/README.md](k8s-v1/README.md) | Documentation du PoC v1 (Kind local) |
+| [k8s-v1/docs/SETUP_POC_kind.md](k8s-v1/docs/SETUP_POC_kind.md) | Procédure de déploiement du PoC v1 |
