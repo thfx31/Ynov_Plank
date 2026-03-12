@@ -6,15 +6,12 @@ resources:
 
 nameSuffix: "-mpl"
 
-commonLabels:
-  app: beeapi-server-mpl
-
 patches:
   - patch: |-
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: beeapi-server
+        name: beeapi-server-mpl
       spec:
         selector:
           matchLabels:
@@ -40,7 +37,7 @@ patches:
       apiVersion: v1
       kind: Service
       metadata:
-        name: beeapi-server
+        name: beeapi-server-mpl
       spec:
         selector:
           app: beeapi-server-mpl

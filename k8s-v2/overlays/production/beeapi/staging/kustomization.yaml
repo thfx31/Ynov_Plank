@@ -6,15 +6,12 @@ resources:
 
 nameSuffix: "-staging"
 
-commonLabels:
-  app: beeapi-server-staging
-
 patches:
   - patch: |-
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: beeapi-server
+        name: beeapi-server-staging
       spec:
         selector:
           matchLabels:
@@ -29,7 +26,6 @@ patches:
                 env:
                   - name: SERVER_NAME
                     value: "Ynov-Staging"
-                # Staging : ressources réduites intentionnellement
                 resources:
                   requests:
                     memory: "32Mi"
@@ -48,7 +44,7 @@ patches:
       apiVersion: v1
       kind: Service
       metadata:
-        name: beeapi-server
+        name: beeapi-server-staging
       spec:
         selector:
           app: beeapi-server-staging

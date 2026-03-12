@@ -6,15 +6,12 @@ resources:
 
 nameSuffix: "-lyon"
 
-commonLabels:
-  app: beeapi-server-lyon
-
 patches:
   - patch: |-
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: beeapi-server
+        name: beeapi-server-lyon
       spec:
         selector:
           matchLabels:
@@ -40,7 +37,7 @@ patches:
       apiVersion: v1
       kind: Service
       metadata:
-        name: beeapi-server
+        name: beeapi-server-lyon
       spec:
         selector:
           app: beeapi-server-lyon
