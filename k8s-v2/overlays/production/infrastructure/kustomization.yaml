@@ -4,16 +4,3 @@ kind: Kustomization
 resources:
   - ../../../base/infrastructure/postgres
   - ../../../base/infrastructure/redis
-
-# En production on utilise gp3 (meilleur rapport perf/coût sur EKS)
-patches:
-  - patch: |-
-      apiVersion: v1
-      kind: PersistentVolumeClaim
-      metadata:
-        name: db-data-pvc
-      spec:
-        storageClassName: gp2
-
-commonLabels:
-  environment: production
