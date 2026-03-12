@@ -14,4 +14,4 @@ spec:
     requests:
       storage: 500Mi
   # Sur EKS, on utilise gp2 (par défaut) ou gp3 (recommandé pour les perfs).
-  # storageClassName: gp3
+  storageClassName: gp2

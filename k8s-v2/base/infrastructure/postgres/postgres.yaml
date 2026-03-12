@@ -9,8 +9,6 @@ metadata:
     app.kubernetes.io/part-of: algohive
 spec:
   replicas: 1
-  # strategy: Recreate est obligatoire pour un volume ReadWriteOnce :
-  # un seul pod peut monter le PVC à la fois. RollingUpdate échouerait.
   strategy:
     type: Recreate
   selector:
@@ -35,20 +33,17 @@ spec:
                 name: algohive-config
             - secretRef:
                 name: algohive-secret
-
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "algohive", "-d", "algohive"]
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 5
-
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "algohive", "-d", "algohive"]
             initialDelaySeconds: 30
             periodSeconds: 20
-
           resources:
             requests:
               memory: "128Mi"
@@ -56,14 +51,12 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
-
           volumeMounts:
             - name: db-storage
               mountPath: /var/lib/postgresql/data
             - name: timezone
               mountPath: /etc/localtime
               readOnly: true
-
       volumes:
         - name: db-storage
           persistentVolumeClaim:
@@ -103,6 +96,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: gp2
   resources:
     requests:
       storage: 1Gi
