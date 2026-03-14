@@ -69,7 +69,7 @@
 | Couche | Technologie |
 |---|---|
 | Cloud | AWS EKS (eu-west-3) |
-| Orchestration | Kubernetes 1.31 |
+| Orchestration | Kubernetes 1.35 |
 | GitOps | ArgoCD — App of Apps pattern |
 | Config management | Kustomize (base/overlays) |
 | Secret management | Bitnami Sealed Secrets v0.36.0 |

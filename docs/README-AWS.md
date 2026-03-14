@@ -2,6 +2,8 @@
 
 Ce document retrace **toutes les étapes** réalisées pour déployer l'architecture AlgoHive sur AWS EKS, avec ArgoCD en mode GitOps. Il inclut les commandes utilisées, les problèmes rencontrés et leurs solutions.
 
+La prochaine étape sera le déploiement automatisé via Terraform.
+
 ---
 
 ## Sommaire
@@ -20,7 +22,8 @@ Ce document retrace **toutes les étapes** réalisées pour déployer l'architec
 12. [Bootstrap — App of Apps ArgoCD](#12-bootstrap--app-of-apps-argocd)
 13. [Vérification du déploiement](#13-vérification-du-déploiement)
 14. [Accès public via ALB](#14-accès-public-via-alb)
-15. [Problèmes rencontrés et solutions](#15-problèmes-rencontrés-et-solutions)
+15. [Destruction de l'infrastructure](#15-destruction-de-linfrastructure)
+16. [Problèmes rencontrés et solutions](#16-problèmes-rencontrés-et-solutions)
 
 ---
 
@@ -32,6 +35,7 @@ Outils nécessaires sur le poste de travail :
 |---|---|
 | `aws` CLI | Interaction avec AWS |
 | `kubectl` | Gestion du cluster K8s |
+| `eksctl` | Gestion avancée EKS (OIDC, addons) |
 | `helm` | Installation de charts (ArgoCD, ALB Controller) |
 | `kubeseal` | Chiffrement des secrets (Sealed Secrets) |
 | `git` | Gestion du repo GitOps |
@@ -40,6 +44,18 @@ Installation de `kubectl` :
 ```bash
 curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
 sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+```
+
+Installation de `eksctl` :
+```bash
+ARCH=amd64
+PLATFORM=$(uname -s)_$ARCH
+curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_${PLATFORM}.tar.gz"
+tar -xzf eksctl_${PLATFORM}.tar.gz -C /tmp
+sudo install -m 755 /tmp/eksctl /usr/local/bin/eksctl
+
+# Vérification
+eksctl version
 ```
 
 ---
@@ -59,16 +75,25 @@ Vérification :
 aws sts get-caller-identity
 ```
 
-> **Compte utilisé :** `302263045490` — région `eu-west-3` (Paris)
-
 ---
 
 ## 3. IAM — Rôles EKS
 
+### Principe des rôles IAM
+
+Dans AWS, un **rôle IAM** est une identité à laquelle on attache des permissions. Un rôle n'a pas de mot de passe — il est **assumé** temporairement par un service ou une entité.
+
+La **trust policy** définit **qui a le droit d'assumer ce rôle**. La **permission policy** définit **ce que ce rôle peut faire**.
+
+Nous créons deux rôles :
+- **AlgoHiveEKSClusterRole** : assumé par le service EKS lui-même pour gérer les ressources réseau et de sécurité du control plane
+- **AlgoHiveEKSNodeRole** : assumé par les instances EC2 (nodes) pour s'enregistrer auprès du cluster et puller les images de containers
+
 ### 3.1 Rôle pour le Control Plane EKS
 
 Créer un fichier `eks-trust-policy.json` :
-```json
+```bash
+cat > eks-trust-policy.json << 'EOF'
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -79,13 +104,17 @@ Créer un fichier `eks-trust-policy.json` :
     }
   ]
 }
+EOF
 ```
 
+Créer le rôle et lui attacher la policy EKS :
 ```bash
+# Créer le rôle avec sa trust policy
 aws iam create-role \
   --role-name AlgoHiveEKSClusterRole \
   --assume-role-policy-document file://eks-trust-policy.json
 
+# Attacher la policy AWS managée qui donne les droits EKS au rôle
 aws iam attach-role-policy \
   --role-name AlgoHiveEKSClusterRole \
   --policy-arn arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
@@ -94,7 +123,8 @@ aws iam attach-role-policy \
 ### 3.2 Rôle pour les Nodes (EC2)
 
 Créer un fichier `node-trust-policy.json` :
-```json
+```bash
+cat > node-trust-policy.json << 'EOF'
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -105,21 +135,27 @@ Créer un fichier `node-trust-policy.json` :
     }
   ]
 }
+EOF
 ```
 
+Créer le rôle et lui attacher les 3 policies nécessaires aux nodes :
 ```bash
+# Créer le rôle
 aws iam create-role \
   --role-name AlgoHiveEKSNodeRole \
   --assume-role-policy-document file://node-trust-policy.json
 
+# Worker node policy (enregistrement auprès du cluster)
 aws iam attach-role-policy \
   --role-name AlgoHiveEKSNodeRole \
   --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
 
+# CNI policy (gestion réseau des pods)
 aws iam attach-role-policy \
   --role-name AlgoHiveEKSNodeRole \
   --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
 
+# ECR policy (pull des images de containers)
 aws iam attach-role-policy \
   --role-name AlgoHiveEKSNodeRole \
   --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
@@ -129,7 +165,11 @@ aws iam attach-role-policy \
 
 ## 4. VPC — CloudFormation
 
-Déploiement du VPC via le template officiel AWS pour EKS (subnets privés + publics) :
+### Pourquoi CloudFormation ?
+
+CloudFormation est le service d'Infrastructure as Code natif d'AWS. On l'utilise ici car le template officiel AWS crée exactement la bonne combinaison de subnets publics/privés avec les bons tags (`kubernetes.io/role/elb: 1`) que le ALB Controller recherche pour placer les load balancers. Faire ça à la main est risqué.
+
+Les templates officiels sont disponibles sur : https://docs.aws.amazon.com/eks/latest/userguide/creating-a-vpc.html
 
 ```bash
 aws cloudformation create-stack \
@@ -141,11 +181,26 @@ aws cloudformation create-stack \
 aws cloudformation wait stack-create-complete --stack-name algohive-vpc
 ```
 
-Récupérer les IDs créés :
+Récupérer les IDs des ressources créées (nécessaires pour les étapes suivantes) :
 ```bash
 aws cloudformation describe-stacks \
   --stack-name algohive-vpc \
   --query "Stacks[0].Outputs"
+```
+
+Distinguer les subnets publics et privés :
+```bash
+# Subnets publics (pour l'ALB)
+aws cloudformation describe-stacks \
+  --stack-name algohive-vpc \
+  --query "Stacks[0].Outputs[?OutputKey=='SubnetsPublic'].OutputValue" \
+  --output text
+
+# Subnets privés (pour les nodes)
+aws cloudformation describe-stacks \
+  --stack-name algohive-vpc \
+  --query "Stacks[0].Outputs[?OutputKey=='SubnetsPrivate'].OutputValue" \
+  --output text
 ```
 
 > **Ressources créées :** VPC, 2 subnets publics, 2 subnets privés, Internet Gateway, NAT Gateway, Route Tables.
@@ -154,10 +209,12 @@ aws cloudformation describe-stacks \
 
 ## 5. EKS — Cluster
 
-Créé via la console AWS EKS :
+### Via la console AWS
+
+Console AWS → EKS → **Create cluster** :
 
 - **Nom :** `algohive`
-- **Version Kubernetes :** `1.31`
+- **Version Kubernetes :** `1.35`
 - **Région :** `eu-west-3`
 - **Rôle IAM :** `AlgoHiveEKSClusterRole`
 - **VPC :** stack `algohive-vpc`
@@ -166,20 +223,73 @@ Créé via la console AWS EKS :
 
 > La création du cluster prend environ 10-15 minutes.
 
+### Via CLI (alternative)
+Remplacer `<ACCOUNT_ID>` par l'ID AWS :
+
+```bash
+# Récupérer les IDs des subnets et security group
+SUBNETS=$(aws cloudformation describe-stacks \
+  --stack-name algohive-vpc \
+  --query "Stacks[0].Outputs[?OutputKey=='SubnetIds'].OutputValue" \
+  --output text | tr ',' ' ')
+
+SG=$(aws cloudformation describe-stacks \
+  --stack-name algohive-vpc \
+  --query "Stacks[0].Outputs[?OutputKey=='SecurityGroups'].OutputValue" \
+  --output text)
+
+aws eks create-cluster \
+  --name algohive \
+  --kubernetes-version 1.35 \
+  --role-arn arn:aws:iam::<ACCOUNT_ID>:role/AlgoHiveEKSClusterRole \
+  --resources-vpc-config subnetIds=${SUBNETS},securityGroupIds=${SG},endpointPublicAccess=true,endpointPrivateAccess=false
+
+# Attendre que le cluster soit actif (~10-15 min)
+aws eks wait cluster-active --name algohive
+```
+
 ---
 
 ## 6. EKS — Node Group
 
-Créé via la console AWS EKS, dans le cluster `algohive` :
+### Via la console AWS
+
+Console AWS → EKS → Clusters → `algohive` → onglet **Compute** → **Add node group** :
 
 - **Nom :** `algohive-nodes`
 - **Rôle IAM :** `AlgoHiveEKSNodeRole`
 - **Type d'instance :** `t3.medium`
 - **Nombre de nodes :** 2 (min: 1, max: 3)
 - **Disque :** 20 GB gp2
-- **Subnets :** privés (les nodes ne sont pas exposés directement)
+- **Subnets :** privés uniquement (les nodes ne sont pas exposés directement)
 
 > La création du node group prend environ 5-10 minutes.
+
+### Via CLI (alternative)
+Remplacer `<ACCOUNT_ID>` par l'ID AWS :
+
+```bash
+# Récupérer les subnets privés
+PRIVATE_SUBNETS=$(aws cloudformation describe-stacks \
+  --stack-name algohive-vpc \
+  --query "Stacks[0].Outputs[?OutputKey=='SubnetsPrivate'].OutputValue" \
+  --output text)
+
+aws eks create-nodegroup \
+  --cluster-name algohive \
+  --nodegroup-name algohive-nodes \
+  --node-role arn:aws:iam::<ACCOUNT_ID>:role/AlgoHiveEKSNodeRole \
+  --subnets $(echo $PRIVATE_SUBNETS | tr ',' ' ') \
+  --instance-types t3.medium \
+  --scaling-config minSize=1,maxSize=3,desiredSize=2 \
+  --disk-size 20 \
+  --ami-type AL2_x86_64
+
+# Attendre que le node group soit actif (~5-10 min)
+aws eks wait nodegroup-active \
+  --cluster-name algohive \
+  --nodegroup-name algohive-nodes
+```
 
 ---
 
@@ -197,8 +307,8 @@ kubectl get nodes
 Résultat attendu :
 ```
 NAME                                        STATUS   ROLES    AGE   VERSION
-ip-192-168-x-x.eu-west-3.compute.internal  Ready    <none>   Xm    v1.31.x
-ip-192-168-x-x.eu-west-3.compute.internal  Ready    <none>   Xm    v1.31.x
+ip-192-168-x-x.eu-west-3.compute.internal  Ready    <none>   Xm    v1.35.x
+ip-192-168-x-x.eu-west-3.compute.internal  Ready    <none>   Xm    v1.35.x
 ```
 
 ---
@@ -209,31 +319,60 @@ EKS 1.23+ nécessite l'installation explicite du driver EBS CSI pour que les `Pe
 
 ### 8.1 Activer l'OIDC Provider
 
+L'OIDC Provider permet à Kubernetes de déléguer l'authentification IAM aux service accounts (mécanisme IRSA). La méthode recommandée utilise `eksctl` qui récupère automatiquement le thumbprint TLS :
+
 ```bash
-# Récupérer l'OIDC ID du cluster
+eksctl utils associate-iam-oidc-provider \
+  --cluster algohive \
+  --region eu-west-3 \
+  --approve
+```
+
+Sans `eksctl`, version CLI pure :
+```bash
+# Récupérer l'URL OIDC
+OIDC_URL=$(aws eks describe-cluster \
+  --name algohive \
+  --query "cluster.identity.oidc.issuer" \
+  --output text)
+
+# Calculer le thumbprint automatiquement
+OIDC_HOST=$(echo $OIDC_URL | sed 's|https://||' | cut -d'/' -f1)
+THUMBPRINT=$(echo | openssl s_client -connect ${OIDC_HOST}:443 -servername ${OIDC_HOST} 2>/dev/null \
+  | openssl x509 -fingerprint -noout -sha1 \
+  | sed 's/://g' | cut -d'=' -f2 | tr '[:upper:]' '[:lower:]')
+
+# Créer l'OIDC provider
+aws iam create-open-id-connect-provider \
+  --url $OIDC_URL \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list $THUMBPRINT
+```
+
+> ⚠️ Si l'erreur `EntityAlreadyExists` apparaît, l'OIDC provider existe déjà (d'un cluster précédent). Tu peux continuer directement à l'étape 8.2 — mais vérifie que l'OIDC ID correspond bien au nouveau cluster (voir section 15.6 pour supprimer l'ancien si besoin).
+
+Récupérer l'OIDC ID pour les étapes suivantes :
+```bash
 aws eks describe-cluster \
   --name algohive \
   --query "cluster.identity.oidc.issuer" \
   --output text
-
-# Associer l'OIDC provider IAM
-aws iam create-open-id-connect-provider \
-  --url https://oidc.eks.eu-west-3.amazonaws.com/id/<OIDC_ID> \
-  --client-id-list sts.amazonaws.com \
-  --thumbprint-list <thumbprint>
+# → https://oidc.eks.eu-west-3.amazonaws.com/id/<OIDC_ID>
 ```
 
 ### 8.2 Créer le rôle IAM pour EBS CSI
+Remplacer `<ACCOUNT_ID>` par l'ID AWS.
+Remplacer `<OIDC_ID>` par l'ID récupéré à l'étape précédente.
 
-Créer un fichier `ebs-trust-policy.json` :
-```json
+```bash
+cat > ebs-trust-policy.json << 'EOF'
 {
   "Version": "2012-10-17",
   "Statement": [
     {
       "Effect": "Allow",
       "Principal": {
-        "Federated": "arn:aws:iam::302263045490:oidc-provider/oidc.eks.eu-west-3.amazonaws.com/id/<OIDC_ID>"
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/oidc.eks.eu-west-3.amazonaws.com/id/<OIDC_ID>"
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
@@ -244,6 +383,7 @@ Créer un fichier `ebs-trust-policy.json` :
     }
   ]
 }
+EOF
 ```
 
 ```bash
@@ -257,9 +397,10 @@ aws iam attach-role-policy \
 ```
 
 ### 8.3 Installer l'addon EKS
+Remplacer `<ACCOUNT_ID>` par l'ID AWS :
 
 Via la console AWS EKS :
-- Cluster `algohive` → Add-ons → **aws-ebs-csi-driver**
+- Cluster `algohive` → **Add-ons** → **aws-ebs-csi-driver**
 - Sélectionner le rôle IAM : `AmazonEKS_EBS_CSI_DriverRole`
 
 Ou via CLI :
@@ -267,7 +408,7 @@ Ou via CLI :
 aws eks create-addon \
   --cluster-name algohive \
   --addon-name aws-ebs-csi-driver \
-  --service-account-role-arn arn:aws:iam::302263045490:role/AmazonEKS_EBS_CSI_DriverRole
+  --service-account-role-arn arn:aws:iam::<ACCOUNT_ID>:role/AmazonEKS_EBS_CSI_DriverRole
 ```
 
 ---
@@ -287,16 +428,18 @@ aws iam create-policy \
 ```
 
 ### 9.2 Créer le rôle IAM IRSA
+Remplacer `<ACCOUNT_ID>` par l'ID AWS.
+Remplacer `<OIDC_ID>` par l'ID récupéré en section 8.1.
 
-Créer un fichier `alb-trust-policy.json` :
-```json
+```bash
+cat > alb-trust-policy.json << 'EOF'
 {
   "Version": "2012-10-17",
   "Statement": [
     {
       "Effect": "Allow",
       "Principal": {
-        "Federated": "arn:aws:iam::302263045490:oidc-provider/oidc.eks.eu-west-3.amazonaws.com/id/<OIDC_ID>"
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/oidc.eks.eu-west-3.amazonaws.com/id/<OIDC_ID>"
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
@@ -307,6 +450,7 @@ Créer un fichier `alb-trust-policy.json` :
     }
   ]
 }
+EOF
 ```
 
 ```bash
@@ -316,10 +460,11 @@ aws iam create-role \
 
 aws iam attach-role-policy \
   --role-name AmazonEKSLoadBalancerControllerRole \
-  --policy-arn arn:aws:iam::302263045490:policy/AWSLoadBalancerControllerIAMPolicy
+  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/AWSLoadBalancerControllerIAMPolicy
 ```
 
 ### 9.3 Installer via Helm
+Remplacer `<ACCOUNT_ID>` par l'ID AWS :
 
 ```bash
 helm repo add eks https://aws.github.io/eks-charts
@@ -330,7 +475,7 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   --set clusterName=algohive \
   --set serviceAccount.create=true \
   --set serviceAccount.name=aws-load-balancer-controller \
-  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=arn:aws:iam::302263045490:role/AmazonEKSLoadBalancerControllerRole
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=arn:aws:iam::<ACCOUNT_ID>:role/AmazonEKSLoadBalancerControllerRole
 
 # Vérification
 kubectl get pods -n kube-system | grep load-balancer
@@ -353,6 +498,8 @@ kubectl wait --for=condition=available deployment -l app.kubernetes.io/name=argo
   -n argocd --timeout=300s
 ```
 
+> ℹ️ Un warning `The CustomResourceDefinition "applicationsets.argoproj.io" is invalid: metadata.annotations: Too long` peut apparaître — c'est une limitation d'annotation Kubernetes sans impact fonctionnel, ArgoCD s'installe correctement.
+
 ### 10.2 Accès à l'UI
 
 ```bash
@@ -364,19 +511,8 @@ kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d
 ```
 
-UI accessible sur : `https://localhost:8888`  
+UI accessible sur : `https://localhost:8888`
 Login : `admin` / `<mot_de_passe_récupéré>`
-
-### 10.3 Fix CRD ApplicationSet
-
-Le controller `argocd-applicationset-controller` crashait au démarrage car le CRD `ApplicationSet` n'était pas installé :
-
-```bash
-kubectl apply -f \
-  https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/crds/applicationset-crd.yaml
-
-kubectl rollout restart deployment/argocd-applicationset-controller -n argocd
-```
 
 ---
 
@@ -429,6 +565,8 @@ git add k8s-v2/base/secrets/sealed-secret.yaml
 git commit -m "feat: add sealed secret"
 git push
 ```
+
+> ⚠️ Un SealedSecret est lié à un cluster spécifique. Il faut le régénérer si le cluster est recréé (nouvelle clé de chiffrement).
 
 ---
 
@@ -492,7 +630,15 @@ beeapi-server-tlse-xxx                  1/1     Running   0
 beehub-xxx                              1/1     Running   0
 ```
 
-### 13.2 Test de l'API backend
+### 13.2 Test du client React
+
+```bash
+kubectl port-forward svc/algohive-client 7002:80 -n algohive
+```
+
+Interface étudiant : `http://localhost:7002`
+
+### 13.3 Test de l'API backend
 
 ```bash
 kubectl port-forward svc/algohive-server 8001:8080 -n algohive
@@ -500,14 +646,40 @@ kubectl port-forward svc/algohive-server 8001:8080 -n algohive
 
 Swagger UI : `http://localhost:8001/swagger/index.html`
 
-### 13.3 Test de BeeHub
+### 13.4 Test de BeeHub
 
 ```bash
 kubectl port-forward svc/beehub 8002:8081 -n algohive
 ```
 
-Interface admin : `http://localhost:8002`  
+Interface admin : `http://localhost:8002`
 Login : `admin` / `admin`
+
+### 13.5 Récupérer les clés API BeeAPI
+
+Les clés API sont générées au démarrage de chaque pod BeeAPI :
+
+```bash
+kubectl logs -n algohive -l app=beeapi-server-tlse | grep "API key initialized"
+kubectl logs -n algohive -l app=beeapi-server-mpl | grep "API key initialized"
+kubectl logs -n algohive -l app=beeapi-server-lyon | grep "API key initialized"
+kubectl logs -n algohive -l app=beeapi-server-staging | grep "API key initialized"
+```
+
+> ⚠️ Si les commandes ne retournent rien, le pod tourne depuis trop longtemps et la ligne de log a été écrasée. Forcer un redémarrage :
+
+```bash
+kubectl rollout restart deployment/beeapi-server-tlse deployment/beeapi-server-mpl \
+  deployment/beeapi-server-lyon deployment/beeapi-server-staging -n algohive
+
+sleep 15 && \
+echo "=== TLSE ===" && kubectl logs -n algohive -l app=beeapi-server-tlse | grep "API key" && \
+echo "=== MPL ===" && kubectl logs -n algohive -l app=beeapi-server-mpl | grep "API key" && \
+echo "=== LYON ===" && kubectl logs -n algohive -l app=beeapi-server-lyon | grep "API key" && \
+echo "=== STAGING ===" && kubectl logs -n algohive -l app=beeapi-server-staging | grep "API key"
+```
+
+Ces clés sont à saisir dans BeeHub pour connecter les catalogues.
 
 ---
 
@@ -538,29 +710,193 @@ curl -H "Host: beehub.algohive.dev" \
   http://k8s-algohive-algohive-xxx.eu-west-3.elb.amazonaws.com/
 ```
 
-Les deux retournent du HTML → routing ALB fonctionnel ✅
+Les deux retournent du HTML → routing ALB fonctionnel
 
-### 14.3 Accès navigateur sans domaine réel
+### 14.3 Accès navigateur
 
-Ajouter une entrée dans `/etc/hosts` :
+Pour tester depuis le navigateur sans domaine réel, le port-forward est la méthode recommandée :
+
 ```bash
-echo "$(dig +short k8s-algohive-algohive-xxx.eu-west-3.elb.amazonaws.com | head -1) algohive.dev beehub.algohive.dev" | sudo tee -a /etc/hosts
+kubectl port-forward svc/algohive-client 7002:80 -n algohive
+# → http://localhost:7002
 ```
 
-Puis ouvrir `http://algohive.dev` dans le navigateur.
+Pour tester via l'URL ALB, ajouter une entrée dans `/etc/hosts` :
+```bash
+echo "$(dig +short k8s-algohive-algohive-xxx.eu-west-3.elb.amazonaws.com | head -1) algohive.dev beehub.algohive.dev" | sudo tee -a /etc/hosts
+# → http://algohive.dev
+```
 
-### 14.4 Limitation connue — Client React
+### 14.4 Limitation connue — HTTPS et domaine réel
 
-Le client React est buildé avec une URL d'API hardcodée (`https://algohive.dev`). Sans HTTPS et sans DNS réel pointant vers l'ALB, le frontend ne peut pas contacter le backend depuis le navigateur. L'application est fonctionnelle mais nécessiterait un rebuild de l'image client avec la bonne `API_URL` pour être pleinement opérationnelle en production.
+Le routing ALB fonctionne par **hostname**. Sans domaine réel ni certificat HTTPS, le client React accessible via l'URL ALB ne peut pas contacter l'API backend depuis le navigateur (mixed content HTTP/HTTPS). Le port-forward reste la méthode de démonstration recommandée.
 
-Pour une mise en production complète, il faudrait :
+Pour une mise en production complète il faudrait :
 1. Un domaine réel configuré en DNS vers l'URL ALB
-2. Un certificat ACM pour HTTPS
-3. Rebuild du client React avec l'URL de production
+2. Un certificat ACM gratuit AWS (décommenter les annotations HTTPS dans `ingress.yaml`)
+3. Éventuellement rebuild du client React si l'URL d'API est hardcodée
 
 ---
 
-## 15. Problèmes rencontrés et solutions
+## 15. Destruction de l'infrastructure
+
+À exécuter dans l'ordre — certaines ressources dépendent d'autres.
+
+### 15.1 Supprimer les namespaces K8s
+
+```bash
+kubectl delete namespace algohive
+kubectl delete namespace argocd
+```
+
+### 15.2 Désinstaller le ALB Controller
+
+```bash
+helm uninstall aws-load-balancer-controller -n kube-system
+```
+
+### 15.3 Supprimer le Node Group EKS
+
+Via la console : EKS → Clusters → `algohive` → onglet **Compute** → Node groups → `algohive-nodes` → **Delete**
+
+Ou via CLI :
+```bash
+aws eks delete-nodegroup \
+  --cluster-name algohive \
+  --nodegroup-name algohive-nodes
+
+aws eks wait nodegroup-deleted \
+  --cluster-name algohive \
+  --nodegroup-name algohive-nodes
+```
+
+> Attendre la suppression complète avant de continuer.
+
+### 15.4 Supprimer le Cluster EKS
+
+Via la console : EKS → Clusters → `algohive` → **Delete cluster**
+
+Ou via CLI :
+```bash
+aws eks delete-cluster --name algohive
+aws eks wait cluster-deleted --name algohive
+```
+
+### 15.5 Supprimer l'ALB résiduel et le VPC CloudFormation
+
+Le ALB Controller peut laisser un Load Balancer AWS actif après la suppression des namespaces. Il faut le supprimer manuellement avant de pouvoir supprimer le VPC.
+```bash
+# Vérifier si un ALB résiduel existe
+aws elbv2 describe-load-balancers \
+  --query "LoadBalancers[?contains(LoadBalancerName, 'k8s-algohive')].LoadBalancerArn" \
+  --output text
+
+# Si un ARN apparaît, supprimer le load balancer
+aws elbv2 delete-load-balancer \
+  --load-balancer-arn ""
+
+aws elbv2 wait load-balancers-deleted \
+  --load-balancer-arns ""
+
+# Supprimer le VPC
+aws cloudformation delete-stack --stack-name algohive-vpc
+aws cloudformation wait stack-delete-complete --stack-name algohive-vpc
+```
+
+> ⚠️ Si la suppression du VPC échoue avec "network interfaces in use", vérifier les ENIs résiduelles :
+> ```bash
+> aws ec2 describe-network-interfaces \
+>   --filters "Name=vpc-id,Values=<VPC_ID>" \
+>   --query "NetworkInterfaces[*].{ID:NetworkInterfaceId,Description:Description,Status:Status}"
+> ```
+
+### 15.6 Supprimer l'OIDC Provider
+Remplacer `<ACCOUNT_ID>` par l'ID AWS.
+Remplacer `<OIDC_ID>` par l'ID récupéré en section 8.1.
+
+```bash
+# Récupérer l'ARN
+aws iam list-open-id-connect-providers
+
+# Supprimer
+aws iam delete-open-id-connect-provider \
+  --open-id-connect-provider-arn arn:aws:iam::<ACCOUNT_ID>:oidc-provider/oidc.eks.eu-west-3.amazonaws.com/id/<OIDC_ID>
+```
+
+### 15.7 Supprimer les rôles IAM
+Remplacer `<ACCOUNT_ID>` par l'ID AWS.
+Remplacer `<OIDC_ID>` par l'ID récupéré en section 8.1.
+
+```bash
+# Rôle Control Plane
+aws iam detach-role-policy \
+  --role-name AlgoHiveEKSClusterRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+aws iam delete-role --role-name AlgoHiveEKSClusterRole
+
+# Rôle Nodes
+aws iam detach-role-policy \
+  --role-name AlgoHiveEKSNodeRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+aws iam detach-role-policy \
+  --role-name AlgoHiveEKSNodeRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+aws iam detach-role-policy \
+  --role-name AlgoHiveEKSNodeRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+aws iam delete-role --role-name AlgoHiveEKSNodeRole
+
+# Rôle ALB Controller
+aws iam detach-role-policy \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/AWSLoadBalancerControllerIAMPolicy
+aws iam delete-role --role-name AmazonEKSLoadBalancerControllerRole
+
+# Rôle EBS CSI Driver
+aws iam detach-role-policy \
+  --role-name AmazonEKS_EBS_CSI_DriverRole \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
+aws iam delete-role --role-name AmazonEKS_EBS_CSI_DriverRole
+```
+
+### 15.8 Supprimer la policy ALB
+Remplacer `<ACCOUNT_ID>` par l'ID AWS :
+
+Si la policy a plusieurs versions (suite à une mise à jour) :
+```bash
+# Lister les versions
+aws iam list-policy-versions \
+  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/AWSLoadBalancerControllerIAMPolicy
+
+# Supprimer les versions non-default (ex: v1 si v2 est la default)
+aws iam delete-policy-version \
+  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/AWSLoadBalancerControllerIAMPolicy \
+  --version-id v1
+
+# Supprimer la policy
+aws iam delete-policy \
+  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/AWSLoadBalancerControllerIAMPolicy
+```
+
+### 15.9 Vérification finale
+
+```bash
+# Aucun cluster ne doit apparaître
+aws eks list-clusters
+
+# Aucune stack CREATE_COMPLETE ne doit apparaître
+aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE
+
+# Vérifier qu'il ne reste pas d'instances EC2 tournantes
+aws ec2 describe-instances \
+  --filters "Name=instance-state-name,Values=running" \
+  --query "Reservations[*].Instances[*].[InstanceId,InstanceType,Tags[?Key=='eks:cluster-name'].Value|[0]]" \
+  --output table
+```
+
+---
+
+## 16. Problèmes rencontrés et solutions
 
 ### 🐛 P1 — PVCs bloqués en `Pending`
 
@@ -601,9 +937,9 @@ env:
 
 **Symptôme :** Le pod `algohive-server` démarrait mais était marqué `Unhealthy` par la readiness probe.
 
-**Cause :** La probe ciblait `/health` qui n'existe pas sur l'API. Les probes K8s du fichier v2 initial utilisaient un endpoint incorrect.
+**Cause :** La probe ciblait `/health` qui n'existe pas sur l'API.
 
-**Solution :** Changer l'endpoint de probe vers `/api/v1/metrics` (confirmé fonctionnel dans les logs du pod) :
+**Solution :** Changer l'endpoint de probe vers `/api/v1/metrics` :
 ```yaml
 readinessProbe:
   httpGet:
@@ -629,7 +965,7 @@ readinessProbe:
 
 **Cause :** `nameSuffix` + Strategic Merge Patch ne met pas à jour `spec.selector.matchLabels`, qui est immutable sur un Deployment.
 
-**Solution :** Remplacement par des patches JSON6902 avec `target:` explicite qui mettent à jour toutes les références (name, labels, selector, claimName) :
+**Solution :** Remplacement par des patches JSON6902 avec `target:` explicite :
 ```yaml
 patches:
   - target:
@@ -650,39 +986,13 @@ patches:
 
 **Symptôme :** L'Ingress restait sans `ADDRESS`, les events montraient `AccessDenied: elasticloadbalancing:DescribeListenerAttributes`.
 
-**Cause :** La policy IAM `AWSLoadBalancerControllerIAMPolicy` initialement créée était une version ancienne ne contenant pas la permission `DescribeListenerAttributes` ajoutée dans les versions récentes du controller.
+**Cause :** La policy IAM était une version ancienne ne contenant pas cette permission ajoutée dans les versions récentes du controller.
 
-**Solution :** Mettre à jour la policy IAM avec la version courante :
-```bash
-curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.11.0/docs/install/iam_policy.json
-
-aws iam create-policy-version \
-  --policy-arn arn:aws:iam::302263045490:policy/AWSLoadBalancerControllerIAMPolicy \
-  --policy-document file://iam_policy.json \
-  --set-as-default
-
-kubectl rollout restart deployment/aws-load-balancer-controller -n kube-system
-```
+**Solution :** Télécharger la policy à jour depuis le repo officiel (section 9.1) — la version v2.11.0 contient déjà cette permission.
 
 ---
 
-### 🐛 P7 — `argocd-applicationset-controller` en CrashLoopBackOff
-
-**Symptôme :** Le controller crashait avec `no matches for kind "ApplicationSet" in version "argoproj.io/v1alpha1"`.
-
-**Cause :** Le CRD `ApplicationSet` n'était pas installé dans le cluster.
-
-**Solution :**
-```bash
-kubectl apply -f \
-  https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/crds/applicationset-crd.yaml
-
-kubectl rollout restart deployment/argocd-applicationset-controller -n argocd
-```
-
----
-
-### 🐛 P8 — `base/namespace/kustomization.yaml` manquant
+### 🐛 P7 — `base/namespace/kustomization.yaml` manquant
 
 **Symptôme :** ArgoCD signalait une erreur de build Kustomize sur l'application `algohive-core`.
 
