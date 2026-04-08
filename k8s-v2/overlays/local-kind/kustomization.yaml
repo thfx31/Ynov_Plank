@@ -1,0 +1,75 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base/namespace
+  - ../../base/configmap
+  - algohive-sealed-secret.yaml
+  - grafana-configmap.yaml
+  - grafana-secret.yaml
+  - grafana.yaml
+  - ../../base/infrastructure/postgres
+  - ../../base/infrastructure/redis
+  - ../../base/core/backend
+  - ../../base/core/client
+  - ../../base/core/beehub
+  - ../../overlays/production/beeapi
+  - ../../base/keycloak
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: algohive-config
+    patch: |-
+      - op: replace
+        path: /data/ALLOWED_ORIGINS
+        value: "http://localhost:7002"
+      - op: replace
+        path: /data/CLIENT_URL
+        value: "http://localhost:7002"
+  - target:
+      kind: ConfigMap
+      name: keycloak-config
+    patch: |-
+      - op: replace
+        path: /data/KC_HOSTNAME
+        value: "localhost"
+  - target:
+      kind: PersistentVolumeClaim
+      name: db-data-pvc
+    patch: |-
+      - op: remove
+        path: /spec/storageClassName
+  - target:
+      kind: PersistentVolumeClaim
+      name: beehub-db-pvc
+    patch: |-
+      - op: remove
+        path: /spec/storageClassName
+  - target:
+      kind: PersistentVolumeClaim
+      name: puzzles-pvc-tlse
+    patch: |-
+      - op: remove
+        path: /spec/storageClassName
+  - target:
+      kind: PersistentVolumeClaim
+      name: puzzles-pvc-mpl
+    patch: |-
+      - op: remove
+        path: /spec/storageClassName
+  - target:
+      kind: PersistentVolumeClaim
+      name: puzzles-pvc-lyon
+    patch: |-
+      - op: remove
+        path: /spec/storageClassName
+  - target:
+      kind: PersistentVolumeClaim
+      name: puzzles-pvc-staging
+    patch: |-
+      - op: remove
+        path: /spec/storageClassName
+
+commonLabels:
+  environment: local-kind
