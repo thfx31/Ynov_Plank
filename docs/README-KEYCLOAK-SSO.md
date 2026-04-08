@@ -2,13 +2,12 @@
 
 ## Objectif
 
-Mettre en place `Keycloak` comme fournisseur d'identité et permettre le `SSO` sur `Grafana`.
+Mettre en place `Keycloak` comme fournisseur d'identite et permettre le `SSO` sur `Grafana`.
 
 ## Ce qui a été ajouté
 
 - Déploiement `Keycloak` dans `k8s-v2`
 - Intégration `Grafana -> Keycloak` validée en local
-- Import utilisateurs Keycloak par script `CSV/XLSX`
 - Version ArgoCD propre pour le monitoring avec `client_secret` dans un `SealedSecret`
 
 ## Fichiers principaux
@@ -78,8 +77,6 @@ client_secret: $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
 
 ## Gestion des utilisateurs
 
-### Pour Grafana SSO
-
 Les utilisateurs peuvent être créés manuellement dans l'interface web Keycloak :
 
 1. Ouvrir le realm `Grafana`
@@ -97,20 +94,6 @@ Mapping Grafana :
 - `manager` -> `Editor`
 - autre -> `Viewer`
 
-### Import CSV/XLSX
-
-Disponible via :
-
-- `k8s-v2/base/keycloak/import_users.py`
-- `k8s-v2/base/keycloak/users-import-template.csv`
-- `k8s-v2/base/keycloak/users-import-template.xlsx`
-
-Le script peut :
-
-- créer ou mettre à jour un utilisateur
-- définir le mot de passe initial
-- forcer `UPDATE_PASSWORD`
-
 ## Limites / points d'attention
 
 - Un `SealedSecret` est lié à un cluster : si le cluster change, il faut le régénérer
@@ -119,9 +102,8 @@ Le script peut :
 
 ## Suite prévue
 
-Créer une branche dédiée pour :
+Si on reprend le sujet plus tard :
 
 - analyser l'auth actuelle d'AlgoHive
 - brancher Keycloak sur l'application
 - permettre un login SSO AlgoHive
-- gérer un import utilisateurs CSV pour ce flux
