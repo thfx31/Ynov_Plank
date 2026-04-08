@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: algohive-config
+  namespace: algohive
+  labels:
+    app.kubernetes.io/part-of: algohive
+data:
+  # --- Base de données Postgres ---
+  POSTGRES_HOST: "algohive-db"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "algohive"
+  POSTGRES_USER: "algohive"
+
+  # --- Serveur & CORS ---
+  ENV: "production"
+  API_PORT: "8080"
+  # ⚠️  ALLOWED_ORIGINS doit être restreint en prod : ne pas laisser "*"
+  ALLOWED_ORIGINS: "https://algohive.dev"
+  CLIENT_URL: "https://algohive.dev"
+
+  # --- Mail (SMTP) ---
+  MAIL_HOST: "smtp.gmail.com"
+  MAIL_PORT: "587"
+  MAIL_USERNAME: "algohive.dev@gmail.com"
+
+  # --- Redis Cache ---
+  CACHE_HOST: "algohive-cache"
+  CACHE_PORT: "6379"
+  CACHE_DB: "0"
+  CACHE_EXPI_MIN: "30"
+  CACHE_TTL: "86400"
+
+  # --- BeeHub (back-office admin) ---
+  APP_PORT: "8081"
+  ADMIN_USERNAME: "admin"
+  DISCOVERY_ENABLED: "true"
+
+  # La liste des BeeAPI est définie ici pour que BeeHub puisse les découvrir.
+  # Les URLs correspondent aux noms de Service K8s internes.
+  BEE_APIS: "http://beeapi-server-tlse:5000,http://beeapi-server-mpl:5000,http://beeapi-server-lyon:5000,http://beeapi-server-staging:5000"
+  DISCOVERY_URLS: "http://beeapi-server-tlse:5000,http://beeapi-server-mpl:5000,http://beeapi-server-lyon:5000,http://beeapi-server-staging:5000"

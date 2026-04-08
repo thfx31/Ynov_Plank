@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: algohive-server
+  namespace: algohive
+  labels:
+    app.kubernetes.io/name: algohive-server
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: algohive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: algohive-server
+  template:
+    metadata:
+      labels:
+        app: algohive-server
+        app.kubernetes.io/name: algohive-server
+        app.kubernetes.io/component: backend
+    spec:
+      containers:
+        - name: server
+          image: ghcr.io/algohive-coding-puzzles/api:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: algohive-config
+            - secretRef:
+                name: algohive-secret
+
+          # /health n'existe pas sur cette API — on utilise /api/v1/metrics
+          # qui est confirmé Running dans les logs
+          readinessProbe:
+            httpGet:
+              path: /api/v1/metrics
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /api/v1/metrics
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

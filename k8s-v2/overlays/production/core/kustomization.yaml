@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+ 
+resources:
+  - ../../../base/namespace
+  - ../../../base/configmap
+  - ../../../base/secrets
+  - ../../../base/core/backend
+  - ../../../base/core/client
+  - ../../../base/core/beehub
+  - ingress.yaml
+ 
+images:
+  - name: ghcr.io/algohive-coding-puzzles/api
+    newTag: latest
+  - name: ghcr.io/algohive-coding-puzzles/client
+    newTag: latest
+  - name: ghcr.io/algohive-coding-puzzles/beehub
+    newTag: latest

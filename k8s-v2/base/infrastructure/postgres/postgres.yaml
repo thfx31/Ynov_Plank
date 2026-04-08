@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: algohive-db
+  namespace: algohive
+  labels:
+    app.kubernetes.io/name: algohive-db
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: algohive
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: algohive-db
+  template:
+    metadata:
+      labels:
+        app: algohive-db
+        app.kubernetes.io/name: algohive-db
+        app.kubernetes.io/component: database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: algohive-config
+            - secretRef:
+                name: algohive-secret
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "algohive", "-d", "algohive"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "algohive", "-d", "algohive"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: db-storage
+              mountPath: /var/lib/postgresql/data
+            - name: timezone
+              mountPath: /etc/localtime
+              readOnly: true
+      volumes:
+        - name: db-storage
+          persistentVolumeClaim:
+            claimName: db-data-pvc
+        - name: timezone
+          hostPath:
+            path: /etc/localtime
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: algohive-db
+  namespace: algohive
+  labels:
+    app.kubernetes.io/name: algohive-db
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: algohive
+spec:
+  selector:
+    app: algohive-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-data-pvc
+  namespace: algohive
+  labels:
+    app.kubernetes.io/name: algohive-db
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: algohive
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp2
+  resources:
+    requests:
+      storage: 1Gi

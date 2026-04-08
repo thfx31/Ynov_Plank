@@ -1,0 +1,47 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../base/beeapi
+
+# On cible explicitement la ressource à patcher avec 'target'
+# plutôt que de se fier au nom dans le patch body
+patches:
+  - target:
+      kind: Deployment
+      name: beeapi-server
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: beeapi-server-tlse
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: beeapi-server-tlse
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: beeapi-server-tlse
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "Ynov-Toulouse"
+      - op: replace
+        path: /spec/template/spec/volumes/0/persistentVolumeClaim/claimName
+        value: puzzles-pvc-tlse
+
+  - target:
+      kind: Service
+      name: beeapi-server
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: beeapi-server-tlse
+      - op: replace
+        path: /spec/selector/app
+        value: beeapi-server-tlse
+
+  - target:
+      kind: PersistentVolumeClaim
+      name: puzzles-pvc
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: puzzles-pvc-tlse

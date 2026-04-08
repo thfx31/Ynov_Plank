@@ -1,0 +1,36 @@
+# --- AWS / IAM ---
+iam_policy.json
+eks-trust-policy.json
+node-trust-policy.json
+ebs-trust-policy.json
+alb-trust-policy.json
+
+# --- Secrets (ne jamais commiter) ---
+*.env
+.env*
+secrets.yaml
+# Exception : les SealedSecrets sont safe à commiter
+!sealed-secret.yaml
+
+# --- Kubernetes ---
+kubeconfig
+*.kubeconfig
+
+# --- Outils ---
+kubeseal
+eksctl
+kubectl
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Others ---
+*.tar.gz
+*.zip
